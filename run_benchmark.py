@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from weave_utils.models import LiteLLMModel, MajorityVoteModel
-from weave_utils.scorers import eval_majority_vote, eval_multi_choice
+from weave_utils.scorers import eval_majority_vote, eval_multi_choice, eval_multi_choice_confidence
 
 
 def load_dataset(file_path):
@@ -29,6 +29,7 @@ def run_benchmark(
     max_tokens: int = 2048,
     top_p: float = 0.95,
     max_retries: int = 3,
+    confidence: Optional[bool] = False,
     system_prompt_path: str = "system_prompt.txt",
 ):
     """
@@ -52,21 +53,33 @@ def run_benchmark(
             Default is 0.95.
         max_retries (int): Maximum number of retries for the model.
             Default is 3.
+        confidence (bool): If True, uses a system prompt that includes confidence scoring.
         system_prompt (str): System prompt for the model.
             Default is "You are an expert at reasoning and you always pick the most realistic answer. Think step by step and output your reasoning followed by your final answer using the following format: Final Answer: X where X is one of the letters A, B, C, D, E, or F."
 
     Example:
         python run_benchmark.py --model_name=gpt-4o-mini --dataset_path=simple_bench_public.json --num_responses=3
     """
+    if confidence:
+        system_prompt_path = "system_prompt_confidence_question_parallel.txt"
 
     if entity is not None:
         weave.init(f"{entity}/{project}")
     else:
         weave.init(f"{project}")
+    
+    scorers_list = []
+    if num_responses == 1:
+        scorers_list = [eval_multi_choice]
+    elif num_responses > 1:
+        scorers_list = [eval_majority_vote]
+    if confidence:
+        scorers_list = [eval_multi_choice, eval_multi_choice_confidence]
+
 
     evaluation = weave.Evaluation(
         dataset=load_dataset(dataset_path),
-        scorers=[eval_majority_vote if num_responses > 1 else eval_multi_choice],
+        scorers=scorers_list,
         trials=1,
     )
 

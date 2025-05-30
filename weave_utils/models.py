@@ -15,6 +15,7 @@ from openai import RateLimitError
 
 MODEL_MAP = {
     "gpt-4o-mini": "gpt-4o-mini",
+    "gpt-4.1-mini-2025-04-14":"gpt-4.1-mini-2025-04-14",
     "claude-3-5-sonnet-20240620": "claude-3-5-sonnet-20240620",
     "gpt-4o": "gpt-4o-2024-08-06",
     "gpt-4-turbo": "gpt-4-turbo",
@@ -88,6 +89,7 @@ class LiteLLMModel(weave.Model):
                 )
 
                 if response.choices[0].message.content is not None:
+                    print(response.choices[0].message.content)
                     return response.choices[0].message.content
                 else:
                     print(response)
