@@ -7,7 +7,7 @@ from fire import Fire
 import openai
 
 from dotenv import load_dotenv
-from fire import Fire
+from typing import List, Optional, Union
 
 from weave_utils.models import LiteLLMModel, MajorityVoteModel
 from weave_utils.scorers import (
@@ -26,7 +26,7 @@ def load_dataset(file_path: str) -> List[dict]:
 
 
 async def _evaluate_question(
-    model: LiteLLMModel,
+    model: Union[LiteLLMModel, MajorityVoteModel],
     prompt: str,
     answer: str,
     num_responses: int,
@@ -132,13 +132,13 @@ def run_benchmark(
         f"Model {model_name}: {num_correct}/{len(results)} correct. Total score: {total_score}"
     )
 
+    return results
+
 
 
 def run_all_benchmarks(
     dataset_path: str = "simple_bench_public.json",
     num_responses: int = 1,
-    entity: str = "simplebench",
-    project: str = "simple_bench_public",
     temp: float = 0.7,
     max_tokens: int = 2048,
     top_p: float = 0.95,
@@ -156,8 +156,6 @@ def run_all_benchmarks(
                 model_name=model_name,
                 dataset_path=dataset_path,
                 num_responses=num_responses,
-                entity=entity,
-                project=project,
                 temp=temp,
                 max_tokens=max_tokens,
                 top_p=top_p,
