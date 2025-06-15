@@ -9,6 +9,14 @@ Run benchmark:
 python run_benchmark.py --model_name=gpt-4o --dataset_path=simple_bench_public.json
 ```
 
+After running benchmarks for each model, a CSV file will be written to the
+`results/` directory containing the score and whether each answer was correct.
+To generate a performance graph from these CSV files run:
+
+```
+python analyze_results.py
+```
+
 ## Setup Instructions
 
 Clone the github repo and cd into it.
