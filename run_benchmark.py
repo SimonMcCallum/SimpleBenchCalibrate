@@ -1,8 +1,10 @@
-import asyncio
 import csv
-import json
 import os
-from typing import Optional, List
+import json
+import weave
+import asyncio
+from fire import Fire
+import openai
 
 from dotenv import load_dotenv
 from fire import Fire
@@ -46,6 +48,17 @@ async def _evaluate_question(
         score = float(bool(correct))
 
     return outputs, int(bool(correct)), float(score)
+
+
+def get_openai_models() -> List[str]:
+    """Fetch available model names from the OpenAI API."""
+    try:
+        client = openai.OpenAI()
+        response = client.models.list()
+        return [model.id for model in response.data]
+    except Exception as exc:
+        print(f"Failed to fetch OpenAI models: {exc}")
+        return []
 
 
 def run_benchmark(
@@ -120,5 +133,50 @@ def run_benchmark(
     )
 
 
+
+def run_all_benchmarks(
+    dataset_path: str = "simple_bench_public.json",
+    num_responses: int = 1,
+    entity: str = "simplebench",
+    project: str = "simple_bench_public",
+    temp: float = 0.7,
+    max_tokens: int = 2048,
+    top_p: float = 0.95,
+    max_retries: int = 3,
+    confidence: Optional[bool] = False,
+    system_prompt_path: str = "system_prompt.txt",
+    repeats: int = 3,
+) -> None:
+    """Run benchmarks for all available OpenAI models."""
+    models = get_openai_models()
+    all_results = []
+    for model_name in models:
+        for idx in range(repeats):
+            res = run_benchmark(
+                model_name=model_name,
+                dataset_path=dataset_path,
+                num_responses=num_responses,
+                entity=entity,
+                project=project,
+                temp=temp,
+                max_tokens=max_tokens,
+                top_p=top_p,
+                max_retries=max_retries,
+                confidence=confidence,
+                system_prompt_path=system_prompt_path,
+            )
+            all_results.append({
+                "model_name": model_name,
+                "run_index": idx + 1,
+                "result": res,
+            })
+
+    with open("benchmark_results.json", "w") as f:
+        json.dump(all_results, f, indent=2, default=str)
+
+
 if __name__ == "__main__":
-    Fire(run_benchmark)
+    Fire({
+        "run_benchmark": run_benchmark,
+        "run_all_benchmarks": run_all_benchmarks,
+    })
