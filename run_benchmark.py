@@ -1,87 +1,70 @@
-# python run_benchmark.py --model_name=gpt-4o-mini --dataset_path=output.json
-
-from typing import Optional
-import json
-import weave
 import asyncio
-from fire import Fire
+import csv
+import json
+import os
+from typing import Optional, List
 
 from dotenv import load_dotenv
-load_dotenv()
+from fire import Fire
 
 from weave_utils.models import LiteLLMModel, MajorityVoteModel
-from weave_utils.scorers import eval_majority_vote, eval_multi_choice, eval_multi_choice_confidence
+from weave_utils.scorers import (
+    eval_majority_vote,
+    eval_multi_choice,
+    eval_multi_choice_confidence,
+)
+
+load_dotenv()
 
 
-def load_dataset(file_path):
-    with open(file_path, 'r') as file:
+def load_dataset(file_path: str) -> List[dict]:
+    with open(file_path, "r") as file:
         data = json.load(file)
-        return data['eval_data']
+        return data["eval_data"]
+
+
+async def _evaluate_question(
+    model: LiteLLMModel,
+    prompt: str,
+    answer: str,
+    num_responses: int,
+    confidence: bool,
+):
+    outputs = []
+    if num_responses == 1:
+        out = await model.predict(prompt)
+        outputs.append(out)
+        correct = eval_multi_choice(out, answer)
+    else:
+        outputs = await model.predict(prompt)
+        correct = eval_majority_vote(outputs, answer)
+
+    if confidence:
+        scores = [eval_multi_choice_confidence(o, answer) for o in outputs]
+        score = sum(scores) / len(scores)
+    else:
+        score = float(bool(correct))
+
+    return outputs, int(bool(correct)), float(score)
 
 
 def run_benchmark(
     model_name: str = "gpt-4o-mini",
     dataset_path: str = "simple_bench_public.json",
     num_responses: int = 1,
-    entity: str = "simplebench",
-    project: str = "simple_bench_public",
     temp: float = 0.7,
     max_tokens: int = 2048,
     top_p: float = 0.95,
     max_retries: int = 3,
     confidence: Optional[bool] = False,
     system_prompt_path: str = "system_prompt.txt",
+    results_dir: str = "results",
 ):
-    """
-    Run a benchmark evaluation on a given model and dataset.
-
-    Args:
-        model_name (str): Name of the model to use for inference.
-            Default is "gpt-4o-mini".
-        dataset_path (str): Path to the dataset JSON file.
-            Default is "simple_bench_public.json".
-        num_responses (int): If greater than 1, majority voting will be applied.
-            Default is 1 (no majority voting).
-        entity (str): Optional Weave entity (org/user name) for evaluation tracking.
-        project (str): The project name under the specified entity.
-            Default is "simple_bench_public".
-        temp (float): Temperature for the model.
-            Default is 0.7.
-        max_tokens (int): Maximum number of tokens to generate.
-            Default is 2048.
-        top_p (float): Top-p for the model.
-            Default is 0.95.
-        max_retries (int): Maximum number of retries for the model.
-            Default is 3.
-        confidence (bool): If True, uses a system prompt that includes confidence scoring.
-        system_prompt (str): System prompt for the model.
-            Default is "You are an expert at reasoning and you always pick the most realistic answer. Think step by step and output your reasoning followed by your final answer using the following format: Final Answer: X where X is one of the letters A, B, C, D, E, or F."
-
-    Example:
-        python run_benchmark.py --model_name=gpt-4o-mini --dataset_path=simple_bench_public.json --num_responses=3
-    """
+    """Run a benchmark and save per-question results to a CSV file."""
     if confidence:
         system_prompt_path = "system_prompt_confidence_question_parallel.txt"
 
-    if entity is not None:
-        weave.init(f"{entity}/{project}")
-    else:
-        weave.init(f"{project}")
-    
-    scorers_list = []
-    if num_responses == 1:
-        scorers_list = [eval_multi_choice]
-    elif num_responses > 1:
-        scorers_list = [eval_majority_vote]
-    if confidence:
-        scorers_list = [eval_multi_choice, eval_multi_choice_confidence]
-
-
-    evaluation = weave.Evaluation(
-        dataset=load_dataset(dataset_path),
-        scorers=scorers_list,
-        trials=1,
-    )
+    os.makedirs(results_dir, exist_ok=True)
 
     with open(system_prompt_path, "r") as f:
         system_prompt = f.read().strip()
@@ -92,13 +75,49 @@ def run_benchmark(
         max_tokens=max_tokens,
         top_p=top_p,
         max_retries=max_retries,
-        system_prompt=system_prompt
+        system_prompt=system_prompt,
     )
 
     if num_responses > 1:
         model = MajorityVoteModel(model=model, num_responses=num_responses)
 
-    asyncio.run(evaluation.evaluate(model))
+    dataset = load_dataset(dataset_path)
+
+    async def _run():
+        results = []
+        for row in dataset:
+            outputs, correct, score = await _evaluate_question(
+                model,
+                row["prompt"],
+                row["answer"],
+                num_responses,
+                confidence,
+            )
+            results.append(
+                {
+                    "question_id": row.get("question_id"),
+                    "correct": correct,
+                    "score": score,
+                    "output": " ||| ".join(outputs),
+                }
+            )
+        return results
+
+    results = asyncio.run(_run())
+
+    result_file = os.path.join(results_dir, f"results_{model_name}.csv")
+    with open(result_file, "w", newline="") as csvfile:
+        writer = csv.DictWriter(
+            csvfile, fieldnames=["question_id", "correct", "score", "output"]
+        )
+        writer.writeheader()
+        writer.writerows(results)
+
+    num_correct = sum(r["correct"] for r in results)
+    total_score = sum(r["score"] for r in results)
+    print(
+        f"Model {model_name}: {num_correct}/{len(results)} correct. Total score: {total_score}"
+    )
 
 
 if __name__ == "__main__":
