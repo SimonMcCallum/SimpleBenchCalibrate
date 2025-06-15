@@ -69,7 +69,7 @@ def run_benchmark(
     max_tokens: int = 2048,
     top_p: float = 0.95,
     max_retries: int = 3,
-    confidence: Optional[bool] = False,
+    confidence: Optional[bool] = True,
     system_prompt_path: str = "system_prompt.txt",
     results_dir: str = "results",
 ):
